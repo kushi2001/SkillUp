@@ -6,16 +6,16 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.Button
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.google.firebase.auth.FirebaseAuth
 
@@ -33,6 +33,12 @@ class SignInActivity : ComponentActivity() {
             SignInScreen(
                 onSignIn = { email, password ->
                     signInUser(email, password)
+                },
+                onForgotPassword = { email ->
+                    resetPassword(email)
+                },
+                onGoToSignUp = {
+                    startActivity(Intent(this, SignUpActivity::class.java))
                 }
             )
         }
@@ -47,9 +53,23 @@ class SignInActivity : ComponentActivity() {
         auth.signInWithEmailAndPassword(email, password)
             .addOnSuccessListener {
                 Toast.makeText(this, "Login Successful", Toast.LENGTH_SHORT).show()
-                // TODO: Replace HomeActivity with your actual home screen activity
                 startActivity(Intent(this, HomeActivity::class.java))
                 finish()
+            }
+            .addOnFailureListener {
+                Toast.makeText(this, it.localizedMessage, Toast.LENGTH_LONG).show()
+            }
+    }
+
+    private fun resetPassword(email: String) {
+        if (email.isEmpty()) {
+            Toast.makeText(this, "Enter your email first", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        auth.sendPasswordResetEmail(email)
+            .addOnSuccessListener {
+                Toast.makeText(this, "Password reset link sent", Toast.LENGTH_SHORT).show()
             }
             .addOnFailureListener {
                 Toast.makeText(this, it.localizedMessage, Toast.LENGTH_LONG).show()
@@ -58,11 +78,18 @@ class SignInActivity : ComponentActivity() {
 }
 
 @Composable
-fun SignInScreen(onSignIn: (String, String) -> Unit) {
+fun SignInScreen(
+    onSignIn: (String, String) -> Unit,
+    onForgotPassword: (String) -> Unit,
+    onGoToSignUp: () -> Unit
+) {
 
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
 
     Box(
         modifier = Modifier
@@ -73,9 +100,18 @@ fun SignInScreen(onSignIn: (String, String) -> Unit) {
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
 
-            Text(text = "Sign In", style = MaterialTheme.typography.headlineMedium)
+            Text(
+                text = "Welcome Back",
+                style = MaterialTheme.typography.headlineMedium
+            )
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Text(
+                text = "Login to continue learning",
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(25.dp))
 
             OutlinedTextField(
                 value = email,
@@ -95,16 +131,56 @@ fun SignInScreen(onSignIn: (String, String) -> Unit) {
                 } else {
                     PasswordVisualTransformation()
                 },
+                trailingIcon = {
+                    Text(
+                        text = if (passwordVisible) "Hide" else "Show",
+                        modifier = Modifier
+                            .clickable { passwordVisible = !passwordVisible }
+                            .padding(4.dp)
+                    )
+                },
                 modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Forgot Password?",
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .clickable {
+                        onForgotPassword(email)
+                    },
+                style = MaterialTheme.typography.bodyMedium,
             )
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            Button(
-                onClick = { onSignIn(email, password) },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(text = "Login")
+            if (loading) {
+                CircularProgressIndicator()
+            } else {
+                Button(
+                    onClick = {
+                        loading = true
+                        onSignIn(email, password)
+                        loading = false
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Login")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Row {
+                Text("Don't have an account?")
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Sign Up",
+                    modifier = Modifier.clickable { onGoToSignUp() },
+                    color = MaterialTheme.colorScheme.primary
+                )
             }
         }
     }

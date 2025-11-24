@@ -36,7 +36,7 @@ class MainActivity : ComponentActivity() {
             SkillUPTheme {
                 SplashScreen {
                     // Navigate to LoginActivity after splash
-                    startActivity(Intent(this, HomeActivity::class.java))
+                    startActivity(Intent(this, SignInActivity::class.java))
                     finish()
                 }
             }
