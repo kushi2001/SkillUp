@@ -30,6 +30,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.statusBarsPadding   // <-- add this import
 import com.example.skillup.ui.theme.SkillUPTheme
 
 class HomeActivity : ComponentActivity() {
@@ -38,7 +39,15 @@ class HomeActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             SkillUPTheme {
-                HomeScreen()
+                // Add status bar padding here so everything is pushed below system bar
+                Surface(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .background(MaterialTheme.colorScheme.background)
+                ) {
+                    HomeScreen()
+                }
             }
         }
     }
@@ -101,7 +110,7 @@ fun HomeScreen(userName: String = "Learner") {
             ) {
                 Column {
                     Text(
-                        text = "Hi, $userName 👋",
+                        text = "Hi, $userName ",
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -288,6 +297,12 @@ fun PopularCourseCard(course: Course) {
 @Composable
 fun HomePreview() {
     SkillUPTheme {
-        HomeScreen()
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+        ) {
+            HomeScreen()
+        }
     }
 }
