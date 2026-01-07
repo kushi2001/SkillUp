@@ -28,6 +28,10 @@
             android:name=".SignInActivity"/>
         <activity
             android:name=".SignUpActivity"/>
+        <activity
+            android:name=".CourseDetailActivity"/>
+
+
 
     </application>
 

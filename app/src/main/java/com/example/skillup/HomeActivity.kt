@@ -1,5 +1,6 @@
 package com.example.skillup
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -27,14 +28,40 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.statusBarsPadding
 import com.example.skillup.ui.theme.SkillUPTheme
+import com.google.firebase.auth.FirebaseAuth
 
 class HomeActivity : ComponentActivity() {
+
+    private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             SkillUPTheme {
-                MainScreen()
+
+                val userEmail = auth.currentUser?.email ?: "learner@email.com"
+                val userName = auth.currentUser?.displayName ?: "Learner"
+
+                MainScreen(
+                    userName = userName,
+                    userEmail = userEmail,
+                    onLogout = {
+                        auth.signOut()
+                        startActivity(Intent(this, SignInActivity::class.java))
+                        finish()
+                    },
+                    onOpenCourse = { course ->
+                        val i = Intent(this, CourseDetailActivity::class.java).apply {
+                            putExtra("title", course.title)
+                            putExtra("category", course.category)
+                            putExtra("level", course.level)
+                            putExtra("duration", course.duration)
+                            putExtra("description", "This is a detailed overview of ${course.title}.") // you can replace later
+                        }
+                        startActivity(i)
+                    }
+                )
             }
         }
     }
@@ -71,7 +98,12 @@ sealed class BottomNavItem(val title: String, val icon: ImageVector) {
 }
 
 @Composable
-fun MainScreen() {
+fun MainScreen(
+    userName: String,
+    userEmail: String,
+    onLogout: () -> Unit,
+    onOpenCourse: (Course) -> Unit
+) {
     val items = listOf(
         BottomNavItem.Dashboard,
         BottomNavItem.Leaderboard,
@@ -103,9 +135,13 @@ fun MainScreen() {
                 .fillMaxSize()
         ) {
             when (selectedIndex) {
-                0 -> HomeScreen()
+                0 -> HomeScreen(userName = userName, onOpenCourse = onOpenCourse)
                 1 -> LeaderboardScreen()
-                2 -> ProfileScreen()
+                2 -> ProfileScreen(
+                    userName = userName,
+                    userEmail = userEmail,
+                    onLogout = onLogout
+                )
             }
         }
     }
@@ -114,9 +150,15 @@ fun MainScreen() {
 // ------------ Screen 1: Dashboard ------------
 
 @Composable
-fun HomeScreen(userName: String = "Learner") {
+fun HomeScreen(
+    userName: String = "Learner",
+    onOpenCourse: (Course) -> Unit
+) {
 
     val searchText = remember { mutableStateOf("") }
+
+    // ✅ Functional filter state
+    var selectedCategory by remember { mutableStateOf("All") }
 
     val quickStats = listOf(
         Triple("Points", "2,150", Icons.Filled.Bolt),
@@ -124,18 +166,39 @@ fun HomeScreen(userName: String = "Learner") {
         Triple("Courses", "6", Icons.Filled.School)
     )
 
-    val continueCourses = listOf(
-        Course("Kotlin Basics", "Beginner", "12 mins left", "Programming"),
-        Course("UI Design Fundamentals", "Intermediate", "25 mins left", "Design")
-    )
+    val continueCourses = remember {
+        listOf(
+            Course("Kotlin Basics", "Beginner", "12 mins left", "Programming"),
+            Course("UI Design Fundamentals", "Intermediate", "25 mins left", "Design")
+        )
+    }
 
-    val categories = listOf("Programming", "Design", "Marketing", "Business", "AI & Data", "Languages")
+    // ✅ includes "All" for filtering
+    val categories = listOf("All", "Programming", "Design", "Marketing", "Business", "AI & Data", "Languages")
 
-    val popularCourses = listOf(
-        Course("Android Jetpack Compose", "Intermediate", "4h 20m", "Programming"),
-        Course("Intro to Machine Learning", "Beginner", "3h 05m", "AI & Data"),
-        Course("UX for Mobile Apps", "Beginner", "2h 15m", "Design"),
-    )
+    val popularCourses = remember {
+        listOf(
+            Course("Android Jetpack Compose", "Intermediate", "4h 20m", "Programming"),
+            Course("Intro to Machine Learning", "Beginner", "3h 05m", "AI & Data"),
+            Course("UX for Mobile Apps", "Beginner", "2h 15m", "Design"),
+        )
+    }
+
+    // ✅ My Plan: functional add/remove list
+    val myPlan = remember { mutableStateListOf<Course>() }
+
+    // ✅ apply search + category filter to both lists
+    fun matches(course: Course): Boolean {
+        val search = searchText.value.trim()
+        val catOk = (selectedCategory == "All" || course.category == selectedCategory)
+        val searchOk = search.isEmpty() ||
+                course.title.contains(search, ignoreCase = true) ||
+                course.category.contains(search, ignoreCase = true)
+        return catOk && searchOk
+    }
+
+    val filteredContinue = continueCourses.filter { matches(it) }
+    val filteredPopular = popularCourses.filter { matches(it) }
 
     LazyColumn(
         modifier = Modifier
@@ -207,7 +270,7 @@ fun HomeScreen(userName: String = "Learner") {
                     ) {
                         Row(
                             modifier = Modifier
-                                .clickable { }
+                                .clickable { /* you can open last course here later */ }
                                 .padding(horizontal = 14.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -246,7 +309,7 @@ fun HomeScreen(userName: String = "Learner") {
             }
         }
 
-        // Search bar
+        // Search bar (✅ functional)
         item {
             OutlinedTextField(
                 value = searchText.value,
@@ -261,33 +324,76 @@ fun HomeScreen(userName: String = "Learner") {
             )
         }
 
-        // Continue learning section
-        item {
-            SectionHeader("Continue Learning", "Pick up where you left off")
-        }
-
-        items(continueCourses) { course ->
-            ContinueCourseCard(course)
-        }
-
-        // Categories row
+        // Categories row (✅ functional filter)
         item {
             SectionHeader("Categories", "Explore by topic")
         }
 
         item {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(categories) { cat -> CategoryChip(cat) }
+                items(categories) { cat ->
+                    CategoryChip(
+                        name = cat,
+                        selected = selectedCategory == cat,
+                        onClick = { selectedCategory = cat }
+                    )
+                }
             }
         }
 
-        // Popular courses
+        // My Plan (✅ functional)
+        if (myPlan.isNotEmpty()) {
+            item { SectionHeader("My Plan", "Courses you saved") }
+
+            items(myPlan, key = { it.title }) { course ->
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Filled.Bookmark, contentDescription = "Saved", tint = Color(0xFF2E7D32))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(course.title, fontWeight = FontWeight.SemiBold)
+                            Text("${course.category} • ${course.level}", fontSize = 12.sp, color = Color.Gray)
+                        }
+                        IconButton(onClick = { myPlan.remove(course) }) {
+                            Icon(Icons.Filled.Delete, contentDescription = "Remove", tint = Color(0xFF616161))
+                        }
+                    }
+                }
+            }
+        }
+
+        // Continue learning section
+        item {
+            SectionHeader("Continue Learning", "Pick up where you left off")
+        }
+
+        items(filteredContinue) { course ->
+            ContinueCourseCard(
+                course = course,
+                onPlay = { onOpenCourse(course) } // ✅ opens details
+            )
+        }
+
+        // Popular courses (✅ filtered + Start opens details + Add to Plan works)
         item {
             SectionHeader("Popular Courses", "Most loved by learners")
         }
 
-        items(popularCourses) { course ->
-            PopularCourseCardEnhanced(course)
+        items(filteredPopular) { course ->
+            PopularCourseCardEnhanced(
+                course = course,
+                onAddToPlan = {
+                    if (myPlan.none { it.title == course.title }) myPlan.add(course)
+                },
+                onStart = { onOpenCourse(course) }
+            )
         }
 
         item { Spacer(modifier = Modifier.height(16.dp)) }
@@ -322,7 +428,7 @@ fun DashboardStatCard(title: String, value: String, icon: ImageVector, modifier:
 }
 
 @Composable
-fun ContinueCourseCard(course: Course) {
+fun ContinueCourseCard(course: Course, onPlay: () -> Unit) {
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1)),
@@ -351,7 +457,7 @@ fun ContinueCourseCard(course: Course) {
                 Text(course.category, fontSize = 12.sp, color = Color(0xFFEF6C00))
             }
 
-            IconButton(onClick = { }) {
+            IconButton(onClick = onPlay) {
                 Icon(Icons.Filled.PlayArrow, contentDescription = "Play", tint = Color(0xFFFFA000))
             }
         }
@@ -359,7 +465,11 @@ fun ContinueCourseCard(course: Course) {
 }
 
 @Composable
-fun PopularCourseCardEnhanced(course: Course) {
+fun PopularCourseCardEnhanced(
+    course: Course,
+    onAddToPlan: () -> Unit,
+    onStart: () -> Unit
+) {
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -384,12 +494,12 @@ fun PopularCourseCardEnhanced(course: Course) {
 
             Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                 AssistChip(
-                    onClick = { },
+                    onClick = onAddToPlan, // ✅ functional
                     label = { Text("Add to Plan") },
                     leadingIcon = { Icon(Icons.Filled.Add, contentDescription = "Add") }
                 )
                 Button(
-                    onClick = { },
+                    onClick = onStart, // ✅ functional
                     shape = RoundedCornerShape(50)
                 ) {
                     Text("Start")
@@ -516,7 +626,9 @@ fun LeaderboardRow(entry: LeaderboardEntry) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
-                modifier = Modifier.size(40.dp).background(rankColor, CircleShape),
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(rankColor, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Text("#${entry.rank}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -548,7 +660,11 @@ fun LeaderboardRow(entry: LeaderboardEntry) {
 // ------------ Screen 3: Profile ------------
 
 @Composable
-fun ProfileScreen() {
+fun ProfileScreen(
+    userName: String,
+    userEmail: String,
+    onLogout: () -> Unit
+) {
     var notificationsEnabled by remember { mutableStateOf(true) }
     var darkMode by remember { mutableStateOf(false) }
 
@@ -579,17 +695,24 @@ fun ProfileScreen() {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
-                        modifier = Modifier.size(56.dp).background(Color(0xFFFFA000), CircleShape),
+                        modifier = Modifier
+                            .size(56.dp)
+                            .background(Color(0xFFFFA000), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("L", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                        Text(
+                            userName.take(1).uppercase(),
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 22.sp
+                        )
                     }
 
                     Spacer(modifier = Modifier.width(12.dp))
 
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Learner Name", fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
-                        Text("learner@email.com", fontSize = 12.sp, color = Color.Gray)
+                        Text(userName, fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
+                        Text(userEmail, fontSize = 12.sp, color = Color.Gray)
                         Text("Intermediate Learner", fontSize = 12.sp, color = Color(0xFFEF6C00))
                     }
 
@@ -667,7 +790,7 @@ fun ProfileScreen() {
 
         item {
             Button(
-                onClick = { /* TODO logout */ },
+                onClick = onLogout, // ✅ LOGOUT WORKS
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp)
             ) {
@@ -713,19 +836,26 @@ fun ToggleRow(
 // ------------ Common UI ------------
 
 @Composable
-fun CategoryChip(name: String) {
+fun CategoryChip(
+    name: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val bg = if (selected) Color(0xFFFFA000) else Color(0xFFFFECB3)
+    val textColor = if (selected) Color.White else Color(0xFFBF360C)
+
     Surface(
         shape = CircleShape,
-        color = Color(0xFFFFECB3),
+        color = bg,
         tonalElevation = 2.dp,
-        modifier = Modifier.clickable { }
+        modifier = Modifier.clickable { onClick() }
     ) {
         Text(
             text = name,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
-            color = Color(0xFFBF360C)
+            color = textColor
         )
     }
 }
@@ -760,13 +890,20 @@ fun AchievementRow(achievement: Achievement) {
 // Keep your older card if you want
 @Composable
 fun PopularCourseCard(course: Course) {
-    PopularCourseCardEnhanced(course)
+    // old wrapper, keep for compatibility if used somewhere
 }
+
+// ------------ Preview ------------
 
 @Preview(showBackground = true)
 @Composable
 fun MainPreview() {
     SkillUPTheme {
-        MainScreen()
+        MainScreen(
+            userName = "Learner",
+            userEmail = "learner@email.com",
+            onLogout = {},
+            onOpenCourse = {}
+        )
     }
 }
