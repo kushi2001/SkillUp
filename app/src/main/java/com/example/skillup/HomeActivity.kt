@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.statusBarsPadding
 import com.example.skillup.ui.theme.SkillUPTheme
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.launch
 
 class HomeActivity : ComponentActivity() {
 
@@ -57,7 +59,7 @@ class HomeActivity : ComponentActivity() {
                             putExtra("category", course.category)
                             putExtra("level", course.level)
                             putExtra("duration", course.duration)
-                            putExtra("description", "This is a detailed overview of ${course.title}.") // you can replace later
+                            putExtra("description", "This is a detailed overview of ${course.title}.")
                         }
                         startActivity(i)
                     }
@@ -149,15 +151,16 @@ fun MainScreen(
 
 // ------------ Screen 1: Dashboard ------------
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     userName: String = "Learner",
     onOpenCourse: (Course) -> Unit
 ) {
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    val searchText = remember { mutableStateOf("") }
-
-    // ✅ Functional filter state
+    var searchText by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
 
     val quickStats = listOf(
@@ -173,7 +176,6 @@ fun HomeScreen(
         )
     }
 
-    // ✅ includes "All" for filtering
     val categories = listOf("All", "Programming", "Design", "Marketing", "Business", "AI & Data", "Languages")
 
     val popularCourses = remember {
@@ -184,219 +186,342 @@ fun HomeScreen(
         )
     }
 
-    // ✅ My Plan: functional add/remove list
+    // ✅ My Plan: functional list
     val myPlan = remember { mutableStateListOf<Course>() }
 
-    // ✅ apply search + category filter to both lists
+    val allCourses = remember(continueCourses, popularCourses) { continueCourses + popularCourses }
+
     fun matches(course: Course): Boolean {
-        val search = searchText.value.trim()
-        val catOk = (selectedCategory == "All" || course.category == selectedCategory)
-        val searchOk = search.isEmpty() ||
-                course.title.contains(search, ignoreCase = true) ||
-                course.category.contains(search, ignoreCase = true)
+        val s = searchText.trim()
+        val catOk = selectedCategory == "All" || course.category == selectedCategory
+        val searchOk = s.isEmpty() ||
+                course.title.contains(s, ignoreCase = true) ||
+                course.category.contains(s, ignoreCase = true)
         return catOk && searchOk
     }
 
-    val filteredContinue = continueCourses.filter { matches(it) }
-    val filteredPopular = popularCourses.filter { matches(it) }
+    val filteredContinue by remember(searchText, selectedCategory) {
+        derivedStateOf { continueCourses.filter { matches(it) } }
+    }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
+    val filteredPopular by remember(searchText, selectedCategory) {
+        derivedStateOf { popularCourses.filter { matches(it) } }
+    }
 
-        // Title + notification icon
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("SkillUp", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                Icon(
-                    imageVector = Icons.Filled.Notifications,
-                    contentDescription = "Notifications",
-                    tint = Color(0xFF616161),
-                    modifier = Modifier.size(24.dp)
-                )
-            }
+    // ✅ Suggestions under search bar (this makes “typing” feel functional)
+    val suggestions by remember(searchText) {
+        derivedStateOf {
+            val s = searchText.trim()
+            if (s.isEmpty()) emptyList()
+            else allCourses
+                .distinctBy { it.title }
+                .filter { it.title.contains(s, ignoreCase = true) || it.category.contains(s, ignoreCase = true) }
+                .take(5)
         }
+    }
 
-        // Gradient header
-        item {
-            val headerGradient = Brush.verticalGradient(
-                colors = listOf(Color(0xFFFFD54F), Color(0xFFFFB300))
-            )
+    Scaffold(
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
 
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(headerGradient, RoundedCornerShape(20.dp))
-                    .padding(16.dp)
-            ) {
+            // Title + notification icon
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("SkillUp", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    Icon(
+                        imageVector = Icons.Filled.Notifications,
+                        contentDescription = "Notifications",
+                        tint = Color(0xFF616161),
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clickable {
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("Notifications clicked (demo)")
+                                }
+                            }
+                    )
+                }
+            }
+
+            // Gradient header
+            item {
+                val headerGradient = Brush.verticalGradient(
+                    colors = listOf(Color(0xFFFFD54F), Color(0xFFFFB300))
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(headerGradient, RoundedCornerShape(20.dp))
+                        .padding(16.dp)
+                ) {
+                    Column {
+                        Text(
+                            text = "Hi, $userName 👋",
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Let’s hit today’s learning goal!",
+                            fontSize = 14.sp,
+                            color = Color.White.copy(alpha = 0.9f)
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text("Daily Goal: 20 mins", color = Color.White, fontSize = 12.sp)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        LinearProgressIndicator(
+                            progress = { 0.65f },
+                            modifier = Modifier.fillMaxWidth(),
+                            trackColor = Color.White.copy(alpha = 0.25f),
+                            color = Color.White
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = Color.White
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .clickable {
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("Continue Learning clicked")
+                                        }
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.PlayArrow,
+                                    contentDescription = "Continue",
+                                    tint = Color(0xFFFFA000),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Continue Learning",
+                                    color = Color(0xFFFFA000),
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Quick stats row
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    quickStats.forEach { (title, value, icon) ->
+                        DashboardStatCard(
+                            title = title,
+                            value = value,
+                            icon = icon,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    scope.launch { snackbarHostState.showSnackbar("$title clicked") }
+                                }
+                        )
+                    }
+                }
+            }
+
+            // Search bar (✅ now has suggestions below)
+            item {
                 Column {
-                    Text(
-                        text = "Hi, $userName 👋",
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Let’s hit today’s learning goal!",
-                        fontSize = 14.sp,
-                        color = Color.White.copy(alpha = 0.9f)
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Daily goal progress
-                    Text("Daily Goal: 20 mins", color = Color.White, fontSize = 12.sp)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    LinearProgressIndicator(
-                        progress = { 0.65f },
+                    OutlinedTextField(
+                        value = searchText,
+                        onValueChange = { searchText = it },
+                        label = { Text("Search courses") },
                         modifier = Modifier.fillMaxWidth(),
-                        trackColor = Color.White.copy(alpha = 0.25f),
-                        color = Color.White
+                        singleLine = true,
+                        shape = RoundedCornerShape(50.dp),
+                        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = "Search") },
+                        trailingIcon = {
+                            if (searchText.isNotEmpty()) {
+                                IconButton(onClick = { searchText = "" }) {
+                                    Icon(Icons.Filled.Close, contentDescription = "Clear")
+                                }
+                            }
+                        }
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    AnimatedVisibility(visible = suggestions.isNotEmpty()) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color.White),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                        ) {
+                            Column(Modifier.padding(10.dp)) {
+                                Text("Suggestions", fontSize = 12.sp, color = Color.Gray)
+                                Spacer(Modifier.height(6.dp))
 
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = Color.White
+                                suggestions.forEach { course ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                scope.launch {
+                                                    snackbarHostState.showSnackbar("Opening: ${course.title}")
+                                                }
+                                                onOpenCourse(course)
+                                            }
+                                            .padding(vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Filled.Search, contentDescription = null, tint = Color(0xFF616161))
+                                        Spacer(Modifier.width(10.dp))
+                                        Column(Modifier.weight(1f)) {
+                                            Text(course.title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                            Text(course.category, fontSize = 12.sp, color = Color.Gray)
+                                        }
+                                        Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null, tint = Color.Gray)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Categories row (✅ snackbar confirms filter applied)
+            item {
+                SectionHeader("Categories", "Explore by topic")
+            }
+
+            item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(categories) { cat ->
+                        CategoryChip(
+                            name = cat,
+                            selected = selectedCategory == cat,
+                            onClick = {
+                                selectedCategory = cat
+                                scope.launch { snackbarHostState.showSnackbar("Filtered: $cat") }
+                            }
+                        )
+                    }
+                }
+            }
+
+            // ✅ If nothing matches, show a “No results” card (so it doesn’t look broken)
+            item {
+                val noResults = filteredContinue.isEmpty() && filteredPopular.isEmpty() && searchText.isNotBlank()
+                if (noResults) {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
-                            modifier = Modifier
-                                .clickable { /* you can open last course here later */ }
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            modifier = Modifier.padding(14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.Filled.PlayArrow,
-                                contentDescription = "Continue",
-                                tint = Color(0xFFFFA000),
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Continue Learning",
-                                color = Color(0xFFFFA000),
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Icon(Icons.Filled.Info, contentDescription = null, tint = Color(0xFFEF6C00))
+                            Spacer(Modifier.width(10.dp))
+                            Column {
+                                Text("No results found", fontWeight = FontWeight.SemiBold)
+                                Text("Try a different keyword or category.", fontSize = 12.sp, color = Color.Gray)
+                            }
                         }
                     }
                 }
             }
-        }
 
-        // Quick stats row
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                quickStats.forEach { (title, value, icon) ->
-                    DashboardStatCard(
-                        title = title,
-                        value = value,
-                        icon = icon,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-        }
+            // My Plan (✅ add/remove shows snackbar)
+            if (myPlan.isNotEmpty()) {
+                item { SectionHeader("My Plan", "Courses you saved") }
 
-        // Search bar (✅ functional)
-        item {
-            OutlinedTextField(
-                value = searchText.value,
-                onValueChange = { searchText.value = it },
-                label = { Text("Search courses") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                shape = RoundedCornerShape(50.dp),
-                leadingIcon = {
-                    Icon(Icons.Filled.Search, contentDescription = "Search")
-                }
-            )
-        }
-
-        // Categories row (✅ functional filter)
-        item {
-            SectionHeader("Categories", "Explore by topic")
-        }
-
-        item {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(categories) { cat ->
-                    CategoryChip(
-                        name = cat,
-                        selected = selectedCategory == cat,
-                        onClick = { selectedCategory = cat }
-                    )
-                }
-            }
-        }
-
-        // My Plan (✅ functional)
-        if (myPlan.isNotEmpty()) {
-            item { SectionHeader("My Plan", "Courses you saved") }
-
-            items(myPlan, key = { it.title }) { course ->
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                items(myPlan, key = { it.title }) { course ->
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(Icons.Filled.Bookmark, contentDescription = "Saved", tint = Color(0xFF2E7D32))
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(course.title, fontWeight = FontWeight.SemiBold)
-                            Text("${course.category} • ${course.level}", fontSize = 12.sp, color = Color.Gray)
-                        }
-                        IconButton(onClick = { myPlan.remove(course) }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Remove", tint = Color(0xFF616161))
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Filled.Bookmark, contentDescription = "Saved", tint = Color(0xFF2E7D32))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(course.title, fontWeight = FontWeight.SemiBold)
+                                Text("${course.category} • ${course.level}", fontSize = 12.sp, color = Color.Gray)
+                            }
+                            IconButton(onClick = {
+                                myPlan.remove(course)
+                                scope.launch { snackbarHostState.showSnackbar("Removed from plan") }
+                            }) {
+                                Icon(Icons.Filled.Delete, contentDescription = "Remove", tint = Color(0xFF616161))
+                            }
                         }
                     }
                 }
             }
-        }
 
-        // Continue learning section
-        item {
-            SectionHeader("Continue Learning", "Pick up where you left off")
-        }
+            // Continue learning section
+            item { SectionHeader("Continue Learning", "Pick up where you left off") }
 
-        items(filteredContinue) { course ->
-            ContinueCourseCard(
-                course = course,
-                onPlay = { onOpenCourse(course) } // ✅ opens details
-            )
-        }
+            items(filteredContinue, key = { it.title }) { course ->
+                ContinueCourseCard(
+                    course = course,
+                    onPlay = {
+                        scope.launch { snackbarHostState.showSnackbar("Playing: ${course.title}") }
+                        onOpenCourse(course)
+                    },
+                    onCardClick = {
+                        scope.launch { snackbarHostState.showSnackbar("Opened: ${course.title}") }
+                        onOpenCourse(course)
+                    }
+                )
+            }
 
-        // Popular courses (✅ filtered + Start opens details + Add to Plan works)
-        item {
-            SectionHeader("Popular Courses", "Most loved by learners")
-        }
+            // Popular courses
+            item { SectionHeader("Popular Courses", "Most loved by learners") }
 
-        items(filteredPopular) { course ->
-            PopularCourseCardEnhanced(
-                course = course,
-                onAddToPlan = {
-                    if (myPlan.none { it.title == course.title }) myPlan.add(course)
-                },
-                onStart = { onOpenCourse(course) }
-            )
-        }
+            items(filteredPopular, key = { it.title }) { course ->
+                PopularCourseCardEnhanced(
+                    course = course,
+                    onAddToPlan = {
+                        if (myPlan.none { it.title == course.title }) {
+                            myPlan.add(course)
+                            scope.launch { snackbarHostState.showSnackbar("Added to plan") }
+                        } else {
+                            scope.launch { snackbarHostState.showSnackbar("Already in plan") }
+                        }
+                    },
+                    onStart = {
+                        scope.launch { snackbarHostState.showSnackbar("Starting: ${course.title}") }
+                        onOpenCourse(course)
+                    }
+                )
+            }
 
-        item { Spacer(modifier = Modifier.height(16.dp)) }
+            item { Spacer(modifier = Modifier.height(16.dp)) }
+        }
     }
 }
 
@@ -428,11 +553,17 @@ fun DashboardStatCard(title: String, value: String, icon: ImageVector, modifier:
 }
 
 @Composable
-fun ContinueCourseCard(course: Course, onPlay: () -> Unit) {
+fun ContinueCourseCard(
+    course: Course,
+    onPlay: () -> Unit,
+    onCardClick: () -> Unit
+) {
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1)),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCardClick() }
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
@@ -494,16 +625,14 @@ fun PopularCourseCardEnhanced(
 
             Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                 AssistChip(
-                    onClick = onAddToPlan, // ✅ functional
+                    onClick = onAddToPlan,
                     label = { Text("Add to Plan") },
                     leadingIcon = { Icon(Icons.Filled.Add, contentDescription = "Add") }
                 )
                 Button(
-                    onClick = onStart, // ✅ functional
+                    onClick = onStart,
                     shape = RoundedCornerShape(50)
-                ) {
-                    Text("Start")
-                }
+                ) { Text("Start") }
             }
         }
     }
@@ -532,9 +661,7 @@ fun LeaderboardScreen() {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item {
-            Text("Leaderboard", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        }
+        item { Text("Leaderboard", fontSize = 24.sp, fontWeight = FontWeight.Bold) }
 
         item {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -580,10 +707,7 @@ fun LeaderboardScreen() {
             }
         }
 
-        items(topLearners) { entry ->
-            LeaderboardRow(entry)
-        }
-
+        items(topLearners) { entry -> LeaderboardRow(entry) }
         item { Spacer(modifier = Modifier.height(10.dp)) }
     }
 }
@@ -680,9 +804,7 @@ fun ProfileScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item {
-            Text("Profile", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        }
+        item { Text("Profile", fontSize = 24.sp, fontWeight = FontWeight.Bold) }
 
         item {
             Card(
@@ -735,34 +857,10 @@ fun ProfileScreen(
         }
 
         item {
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Text("Progress", fontWeight = FontWeight.SemiBold)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text("Weekly goal: 5 lessons", fontSize = 12.sp, color = Color.Gray)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    LinearProgressIndicator(
-                        progress = { 0.6f },
-                        modifier = Modifier.fillMaxWidth(),
-                        trackColor = Color(0xFFC8E6C9)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("3/5 lessons completed", fontSize = 12.sp, color = Color(0xFF2E7D32))
-                }
-            }
-        }
-
-        item {
             Text("Achievements", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         }
 
-        items(achievements) { ach ->
-            AchievementRow(ach)
-        }
+        items(achievements) { ach -> AchievementRow(ach) }
 
         item {
             Text("Preferences", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
@@ -790,7 +888,7 @@ fun ProfileScreen(
 
         item {
             Button(
-                onClick = onLogout, // ✅ LOGOUT WORKS
+                onClick = onLogout,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp)
             ) {
@@ -886,14 +984,6 @@ fun AchievementRow(achievement: Achievement) {
         }
     }
 }
-
-// Keep your older card if you want
-@Composable
-fun PopularCourseCard(course: Course) {
-    // old wrapper, keep for compatibility if used somewhere
-}
-
-// ------------ Preview ------------
 
 @Preview(showBackground = true)
 @Composable
